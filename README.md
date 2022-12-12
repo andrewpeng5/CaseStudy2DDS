@@ -13,5 +13,4 @@ Content:
 3) Knit File
 4) Powerpoint Presentation File
 5) RShiny App Link
-6) Jekyll App Link
 7) Youtube/Zoom Link
