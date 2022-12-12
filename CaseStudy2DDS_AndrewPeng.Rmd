@@ -1,0 +1,403 @@
+---
+title: "Analytics Presentation on Case Study for Employee Attrition"
+author: "Presented by: Andrew Peng"
+output: html_document
+date: "2022-12-11"
+---
+
+```{r setup, include=FALSE}
+
+
+
+# **Description**
+# DDSAnalytics wants to leverage data science to conduct an analysis of exting employee data to build a model which can predict the Attrition. The Attrition model should achieves at least 60% Specificity and Sensitivity and it should also attain an RMSE less than $4000 for salaray.
+
+```{r}
+# Load Required Library
+library("stringr")
+library("dplyr")
+library("ggplot2")
+library("scales")
+library("tidyverse")
+library("tidyr")
+library("plotly")
+library("class")
+library("caret")
+library("e1071")
+library("GGally")
+library("Hmisc")
+library("corrplot")
+library("randomForest")
+library("ROCR")
+library("GGally")
+library("ggcorrplot")
+library("corrr")
+library("knitr")
+library("corrr")
+library("tibble")
+library("lattice")
+
+
+## Importing the Data Set
+```{r}
+CaseStudy2 <- read.csv("C:/Users/andre/Desktop/CaseStudy2DDS/CaseStudy2-data.csv", header=TRUE)
+No_Attrition <- read.csv("C:/Users/andre/Desktop/CaseStudy2DDS/CaseStudy2CompSet No Attrition.csv",header=TRUE)
+No_Salary <- read.csv("C://Users/andre/Desktop/CaseStudy2DDS/CaseStudy2CompSet No Salary.csv",header=TRUE)
+
+## Initial Data Analysis
+
+dim(CaseStudy2)
+head(CaseStudy2)
+summary(CaseStudy2)
+#Check for Missing Values
+sapply(CaseStudy2, function(x) sum(is.na(x)))
+#Check class type for each variable
+sapply(CaseStudy2, class) 
+#Check data frame dimensions and column data types
+str(CaseStudy2)
+
+#Changing Attrition to determine the retention rate
+CaseStudy2$Attrition = as.factor(CaseStudy2$Attrition)
+summary(CaseStudy2$Attrition)
+
+CaseStudy2Job <- CaseStudy2[, -c(10,11,23,28)]
+
+
+
+# Intial Analysis Summary:
+# Data Structure: 870 oberservations (rows), 36 features (variables)
+# Missing Data: there is no missing data 
+# Data Type: there are two types of data exits in this dataset: character and integer
+# Imbalance dataset: 730/870 = 87% employee stayed with the company and 140/870 = 16% employee made the decision to leave
+
+# Attrition Plot
+
+ggplot(data=CaseStudy2,aes(Attrition,after_stat(count),fill=Attrition))+ ggtitle("Attrition Histogram")+ geom_bar()
+
+
+ggplot(CaseStudy2, aes(x=JobRole) + 
+  theme_classic() +
+  geom_bar(aes(fill=Attrition)) +
+  ggtitle("Attrition Histogram by Job Role") +
+  ylab("Number of Employees") +
+  xlab("Job Role") +
+  theme(axis.text.x = element_text(vjust = grid::unit(c(-4, -2, 0), "points")))
+
+
+## Data Clean up and modification
+# Remove zero variance predictors: EmployeeCount, EmployeeNumber, Over18, StandardHours #
+CaseStudy2Clean <- CaseStudy2[, -c(10,11,23,28)]
+No_Attrition <- No_Attrition[,-c(9,10,22,27)]
+No_Salary <- No_Salary[,-c(10,11,22,27)]
+
+# Chang data type
+CaseStudy2Clean$Attrition <- ifelse(CaseStudy2Clean$Attrition == "Yes",1,0)
+
+
+#Transform Categorical Variables to numerical values.
+
+CaseStudy2Clean$Travel[CaseStudy2Clean$BusinessTravel== "Non-Travel"] <-1
+CaseStudy2Clean$Travel[CaseStudy2Clean$BusinessTravel== "Travel_Rarely"] <-2
+CaseStudy2Clean$Travel[CaseStudy2Clean$BusinessTravel== "Travel_Frequently"] <-3
+CaseStudy2Clean$Depart[CaseStudy2Clean$Department== "Human Resources"] <-1
+CaseStudy2Clean$Depart[CaseStudy2Clean$Department== "Research & Development"] <-2
+CaseStudy2Clean$Depart[CaseStudy2Clean$Department== "Sales"] <-3
+CaseStudy2Clean$Degree[CaseStudy2Clean$EducationField== "Human Resources"] <-1
+CaseStudy2Clean$Degree[CaseStudy2Clean$EducationField== "Life Sciences"] <-2
+CaseStudy2Clean$Degree[CaseStudy2Clean$EducationField== "Marketing"] <-3
+CaseStudy2Clean$Degree[CaseStudy2Clean$EducationField== "Medical"] <-4
+CaseStudy2Clean$Degree[CaseStudy2Clean$EducationField== "Other"] <-5
+CaseStudy2Clean$Degree[CaseStudy2Clean$EducationField== "Technical Degree"] <-6
+CaseStudy2$Clean$Sex[CaseStudy2Clean$Gender== "Female"] <-1
+CaseStudy2$Clean$Sex[CaseStudy2Clean$Gender== "Male"] <-2
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Human Resources"] <-1
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Healthcare Representative"] <-2
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Laboratory Technician"] <-3
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Manager"] <-4
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Manufacturing Director"] <-5
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Research Director"] <-6
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Research Scientist"] <-7
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Sales Executive"] <-8
+CaseStudy2Clean$Job[CaseStudy2Clean$JobRole== "Sales Representative"] <-9
+CaseStudy2Clean$Martial[CaseStudy2Clean$MaritalStatus== "Divorced"] <-1
+CaseStudy2Clean$Martial[CaseStudy2Clean$MaritalStatus== "Married"] <-2
+CaseStudy2Clean$Martial[CaseStudy2Clean$MaritalStatus== "Single"] <-3
+CaseStudy2Clean$OT[CaseStudy2Clean$OverTime== "Yes"] <-1
+CaseStudy2Clean$OT[CaseStudy2Clean$OverTime== "No"] <-0
+
+#Drop Transformed Variables
+CaseStudy2drop <- CaseStudy2Clean %>% select(-one_of(c("ID","BusinessTravel", "Department", "EducationField", "Gender", "JobRole", "MaritalStatus","OverTime")))
+str(CaseStudy2drop)
+
+#Change variable "Depart" as numerical variable
+CaseStudy2drop$Depart <- as.numeric(CaseStudy2drop$Depart)
+
+#Create a heatmap 
+CaseStudy2drop %>% 
+  keep(is.numeric) %>%
+  tidyr::drop_na() %>%  
+  cor %>%
+  corrplot(
+    addCoef.col = "grey", number.digits = 2, number.cex = 0.7, method = "color",
+    order = "hclust", title = "Variable Corr Heatmap", tl.srt = 50, tl.cex = 0.8, mar=c(0,0,1,0))
+
+
+#Create a correlation matrix round them to 3 decimal places
+correlationMatrix <- cor(CaseStudy2drop)
+round(correlationMatrix, 3)
+
+model=glm(Attrition~.,data = CaseStudy2drop, family= "binomial")
+summary(model)
+
+#Excludes Attribution correlation with itself and displays a summary of correlations to Attribution
+correlationMatrix[2,2] = NA
+summary(correlationMatrix[,2])
+
+
+correlationMatrixframe=as.data.frame(correlationMatrix)
+
+correlationMatrixframe %>% 
+  keep(is.numeric) %>%
+  tidyr::drop_na() %>%  
+  cor %>%
+  corrplot(
+    addCoef.col = "grey", number.digits = 2, number.cex = 0.7, method = "color",
+    order = "hclust", title = "Variable Corr Heatmap", tl.srt = 50, tl.cex = 0.8, mar=c(0,0,1,0))
+ 
+#Create a Correlation Matrix with Significance Levels (p-value)
+
+CaseStudy2pvalue <- rcorr(as.matrix(CaseStudy2drop))
+
+CaseStudy2pvalue$r
+summary(CaseStudy2pvalue$P)
+
+CaseStudy2pvalue=as.data.frame(CaseStudy2pvalue)
+
+
+# correlation between Attrition and all other variables to determine top 3 variables
+CaseStudy2corr <- cor(CaseStudy2drop[-1], CaseStudy2drop$Attrition) 
+print(CaseStudy2corr)
+
+### Top 3 Factors Impacting Attrition are "OT(Overtime)", "Age", and "Material(Material Status)"
+
+
+
+### Identify Job Specific Trends:
+
+
+#Job Role vs Job Satisfaction 
+
+CaseStudy2Job %>% ggplot() + geom_boxplot(aes(x = JobRole, y = JobSatisfaction , fill = JobRole)) +
+ ggtitle("Job Role v Job Satisfaction") + ylab("Job Satisfaction ")
+
+#Job Role vs Age
+
+CaseStudy2Job %>% ggplot() + geom_boxplot(aes(x = JobRole, y = Age, fill = JobRole)) +
+ ggtitle("Job Role v Age") + ylab("Age")
+
+#Job Role vs Monthly Income
+CaseStudy2Job %>% ggplot(aes(x = JobRole, y = MonthlyIncome)) +
+  geom_boxplot() +
+  labs(x = "Job Role", y = "Monthly Income",
+       title = "Income Distribution by Job Role")
+
+
+
+
+### Model Building and Prediction ###
+
+# Variables
+set.seed(5)
+iter = 100
+numks = 10
+split = .70
+
+# Create a matrix to hold the values from each run.
+Accurary = matrix(nrow = iter, ncol = numks)
+Specificity = matrix(nrow = iter, ncol = numks)
+Sensitivity = matrix(nrow = iter, ncol = numks)
+
+for(j in 1:iter)
+{
+  TrainingRows = sample(1:dim(CaseStudy2drop)[1],round(split * dim(CaseStudy2drop)[1])) # Calculate Training Rows
+  trainset = CaseStudy2drop[TrainingRows,]  # Split into 2 seperate data frames. Include Training Rows
+  testeset = CaseStudy2drop[-TrainingRows,]  # Exclude Training Rows (Testing Rows)
+  for(i in 1:numks)
+  {
+    
+    classifications = knn(trainset[,c(2,24,19,20,21,22)], testeset[,c(2,24,19,20,21,22)],
+                          trainset$Attrition, prob = TRUE, k = i)
+    
+    table(testeset$Attrition, classifications)
+    cm = confusionMatrix(table(testeset$Attrition, classifications))
+    
+    Accurary[j,i] = ((cm$table[1,1] + cm$table[2,2])) / ((cm$table[1,1] + cm$table[1,2]) + (cm$table[2,1] + cm$table[2,2]))
+    Sensitivity[j,i] = cm$table[1,1] / (cm$table[1,1] + cm$table[2,1])
+    Specificity[j,i] = cm$table[2,2] / (cm$table[1,2] + cm$table[2,2])
+  }
+  
+}
+
+AccuracyMean = colMeans(Accurary)
+SpecMean = colMeans(Specificity)
+SensMean = colMeans(Sensitivity)
+plot(seq(1,numks,1),AccuracyMean, type = "l")
+which.max(AccuracyMean)
+max(AccuracyMean)
+plot(seq(1,numks,1),SpecMean, type = "l")
+which.max(SpecMean)
+max(SpecMean)
+plot(seq(1,numks,1),SensMean, type = "l")
+which.max(SensMean)
+max(SensMean)
+
+
+## Naive Bayes Model
+```{r Naive Bayes, echo=FALSE, message=FALSE, warning=FALSE}
+# Variables
+set.seed(5)
+iter = 100
+split = .70
+# Create a matrix to hold the values from each run.
+AccuVect = vector(length = iter)
+SensVect = vector(length = iter)
+SpecVect = vector(length = iter)
+
+
+for(j in 1:iter)
+{
+  
+CaseStudy2drop = mutate_if(CaseStudy2drop, is.numeric, as.factor)
+CaseStudy2drop = mutate_if(CaseStudy2drop, is.integer, as.factor)
+
+  
+  TrainingRows = sample(1:dim(CaseStudy2drop)[1],round(split * dim(CaseStudy2drop)[1])) # Calculate Training Rows
+  Navtrain = CaseStudy2drop[TrainingRows,]  # Split into 2 seperate data frames. Include Training Rows
+  Navtest = CaseStudy2drop[-TrainingRows,]  # Exclude Training Rows (Testing Rows)
+  
+  nbm <- naiveBayes(Navtrain[,c(2,24,19,22)],Navtrain$Attrition)
+  
+  # Predict outcomes for Testing data set.
+  Navtest$predict_outcome = predict(nbm,Navtest)
+  
+  classifications = predict(nbm,Navtest)
+  # classifications
+  table(Navtest$Attrition, classifications)
+  cm = confusionMatrix(table(Navtest$Attrition, classifications))
+  
+  AccuVect[j] = ((cm$table[1,1] + cm$table[2,2])) / ((cm$table[1,1] + cm$table[1,2]) + (cm$table[2,1] + cm$table[2,2]))
+  SensVect[j] = cm$table[1,1] / (cm$table[1,1] + cm$table[2,1])
+  SpecVect[j] = cm$table[2,2] / (cm$table[1,2] + cm$table[2,2])
+}
+
+mean(AccuVect)
+mean(SpecVect)
+mean(SensVect)
+plot(seq(1,length(AccuVect),1),AccuVect, type = "l", main = "Accuracy From NB Model", xlab = "Iteration", ylab = "Accuracy")
+plot(seq(1,length(SpecVect),1),SpecVect, type = "l", main = "Specificity From NB Model", xlab = "Iteration", ylab = "Specificity")
+plot(seq(1,length(SensVect),1),SensVect, type = "l", main = "Sensitivity From NB Model", xlab = "Iteration", ylab = "Sensitivity")
+
+#Create predictions and write to CSV file
+
+
+# Transform date with derived features to run predict model
+
+No_Attrition$Travel[No_Attrition$BusinessTravel== "Non-Travel"] <-1
+No_Attrition$Travel[No_Attrition$BusinessTravel== "Travel_Rarely"] <-2
+No_Attrition$Travel[No_Attrition$BusinessTravel== "Travel_Frequently"] <-3
+No_Attrition$Depart[No_Attrition$Department== "Human Resources"] <-1
+No_Attrition$Depart[No_Attrition$Department== "Research & Development"] <-2
+No_Attrition$Depart[No_Attrition$Department== "Sales"] <-3
+No_Attrition$Degree[No_Attrition$EducationField== "Human Resources"] <-1
+No_Attrition$Degree[No_Attrition$EducationField== "Life Sciences"] <-2
+No_Attrition$Degree[No_Attrition$EducationField== "Marketing"] <-3
+No_Attrition$Degree[No_Attrition$EducationField== "Medical"] <-4
+No_Attrition$Degree[No_Attrition$EducationField== "Other"] <-5
+No_Attrition$Degree[No_Attrition$EducationField== "Technical Degree"] <-6
+No_Attrition$Sex[No_Attrition$Gender== "Female"] <-1
+No_Attrition$Sex[No_Attrition$Gender== "Male"] <-2
+No_Attrition$Job[No_Attrition$JobRole== "Human Resources"] <-1
+No_Attrition$Job[No_Attrition$JobRole== "Healthcare Representative"] <-2
+No_Attrition$Job[No_Attrition$JobRole== "Laboratory Technician"] <-3
+No_Attrition$Job[No_Attrition$JobRole== "Manager"] <-4
+No_Attrition$Job[No_Attrition$JobRole== "Manufacturing Director"] <-5
+No_Attrition$Job[No_Attrition$JobRole== "Research Director"] <-6
+No_Attrition$Job[No_Attrition$JobRole== "Research Scientist"] <-7
+No_Attrition$Job[No_Attrition$JobRole== "Sales Executive"] <-8
+No_Attrition$Job[No_Attrition$JobRole== "Sales Representative"] <-9
+No_Attrition$Martial[No_Attrition$MaritalStatus== "Divorced"] <-1
+No_Attrition$Martial[No_Attrition$MaritalStatus== "Married"] <-2
+No_Attrition$Martial[No_Attrition$MaritalStatus== "Single"] <-3
+No_Attrition$OT[No_Attrition$OverTime== "Yes"] <-1
+No_Attrition$OT[No_Attrition$OverTime== "No"] <-0
+
+#Drop Transformed Variables
+No_Attrition <- No_Attrition %>% select(-one_of(c("ID","BusinessTravel", "Department", "EducationField", "Gender", "JobRole", "MaritalStatus","OverTime")))
+str(No_Attrition)
+
+#New Model to predict Attrition - Export CSV FILE#
+```{r}
+No_Attrition['Attrition'] <- as.factor(NA)
+
+PredictAtt = predict(classifications, No_Attrition)
+PredictAtt <- cbind(No_Attrition$ID, PredictAtt)
+colnames(PredictAtt) <- c("Model", "Attrition")
+head(PredictAtt)
+write.csv(PredictAtt , "C:/Users/andre/Desktop/CaseStudy2DDS/Case2PredictionsPeng Attrition.csv", row.names = FALSE)
+```
+
+
+```{r}
+## Creating a model for Salary
+
+CaseStudy2 %>% ggplot(aes(y = MonthlyIncome, x = JobLevel)) + geom_point() + geom_smooth()
+CaseStudy2 %>% ggplot(aes(y = MonthlyIncome, x = JobRole)) + geom_boxplot()
+CaseStudy2 %>% ggplot(aes(y = MonthlyIncome, x = YearsAtCompany)) + geom_point() + geom_smooth()
+CaseStudy2 %>% ggplot(aes(y = MonthlyIncome, x = MonthlyIncome)) + geom_point() + geom_smooth()
+CaseStudy2 %>% ggplot(aes(y = MonthlyIncome, x = YearsInCurrentRole)) + geom_point() + geom_smooth()
+
+set.seed(3)
+iter = 100
+# Create a matrix to hold the values from each run.
+ObserVect = vector(length = iter)
+PredVect = vector(length = iter)
+for(j in 1:iter)
+{
+  TrainingRows = sample(1:dim(CaseStudy2)[1],dim(CaseStudy2)[1]-1) # Calculate Training Rows (leave one out)
+  SalTrain = CaseStudy2[TrainingRows,]  # Split into 2 seperate data frames. Include Training Rows
+  SalTest = CaseStudy2[-TrainingRows,]  # Exclude Training Rows (Testing Rows)
+  
+  MI_fit <- lm(MonthlyIncome~JobLevel+JobRole+YearsAtCompany+MonthlyIncome+YearsInCurrentRole, data = SalTrain)
+  ObserVect[j] <- SalTest$MonthlyIncome
+  PredVect[j] <- predict(MI_fit, newdata = SalTest)
+  
+}
+
+
+mi_model_df <- data.frame(ObserVect, PredVect)
+# Calculate Resisduals
+mi_model_df$Res <- mi_model_df$ObserVect - mi_model_df$PredVect
+# Square the Residuals
+mi_model_df$ResSQ = mi_model_df$Res^2
+# Calculate the RMSE
+sqrt(mean(mi_model_df$ResSQ))
+summary(MI_fit)
+## RMSE = 1145.198
+#Confidence Intervals
+confint(MI_fit)
+
+Salary_Pred <- predict(MI_fit, newdata = No_Salary)
+
+SalaryMerg <- merge(No_Salary$ID, Salary_Pred, by=0, all=TRUE) 
+#dim(SalaryMerg)
+#head(SalaryMerg,2)
+# renaming the merged variable names
+colnames(SalaryMerg)[colnames(SalaryMerg)=="Row.names"] <- "RowNumber"
+colnames(SalaryMerg)[colnames(SalaryMerg)=="x"] <- "ID"
+colnames(SalaryMerg)[colnames(SalaryMerg)=="y"] <- "MonthlyIncome"
+SalaryMerg <- SalaryMerg[order(SalaryMerg$ID),] %>% dplyr::select(ID, MonthlyIncome)
+#dim(SalaryMerg)
+#head(SalaryMerg,2)
+
+
+write.csv(SalaryMerg, file = "C:/Users/andre/Desktop/CaseStudy2DDS/Case2PredictionsPeng Salary.csv", row.names = FALSE)
